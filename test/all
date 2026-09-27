@@ -130,6 +130,12 @@ check "a failed FIDO2 attempt cannot become a polling retry loop" bash -c '
   grep -q "fido2RetryBlocked = true" "$1/Service.qml" \
     && grep -q "!root.fido2RetryBlocked && !wasPresent" "$1/Service.qml"' _ "$REPO"
 
+# pam_u2f waits for a PIN without any timeout, so holding the display up for
+# the whole FIDO2 conversation would keep a locked screen lit until unlock.
+check "only a PIN being verified holds the lock screen lit" bash -c '
+  grep -q "root.authenticatingPassword || root.fido2Verifying" "$1/Service.qml" \
+    && ! grep -q "root.authenticatingPassword || root.fido2Authenticating" "$1/Service.qml"' _ "$REPO"
+
 # An empty Text is valid QML, lints clean, and draws nothing at zero width, so
 # a glyph lost in an edit leaves no trace anywhere except a lock screen with a
 # missing icon. This shipped once.

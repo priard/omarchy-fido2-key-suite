@@ -133,6 +133,10 @@ Item {
   // this latch.
   property bool fido2RetryBlocked: false
   property bool fido2NeedsPin: false
+  // A PIN has been handed to pam_u2f and the key is checking it (and may be
+  // asking for the touch that follows). Unlike merely waiting for a touch,
+  // this is a bounded interaction the user is actively in the middle of.
+  property bool fido2Verifying: false
   property string fido2Status: ""
   property string pendingFido2Pin: ""
   // The factor is picked once per lock, then left alone. Without this the
@@ -326,6 +330,7 @@ Item {
     fido2SettleTimer.stop()
     fido2ScheduledAt = 0
     fido2Authenticating = false
+    fido2Verifying = false
     fido2NeedsPin = false
     fido2Status = ""
     pendingFido2Pin = ""
@@ -532,12 +537,14 @@ Item {
     fido2Pam.respond(value)
     pendingFido2Pin = ""
     fido2NeedsPin = false
+    fido2Verifying = true
     enteredPassword = ""
     fido2Status = "Checking…"
   }
 
   function handleFido2Finished(result) {
     fido2Authenticating = false
+    fido2Verifying = false
     fido2NeedsPin = false
     pendingFido2Pin = ""
     enteredPassword = ""
@@ -947,10 +954,12 @@ Item {
         root.armBlankTimer()
         return
       }
-      // Fingerprint PAM stays armed for the whole lock, but password and FIDO
-      // transactions are bounded user interactions. Keep their prompts visible
-      // instead of blanking the display while the user is touching the key.
-      if (root.authenticatingPassword || root.fido2Authenticating) {
+      // Fingerprint PAM stays armed for the whole lock, and so does a FIDO2
+      // conversation waiting for a PIN or a touch -- a PIN prompt waits
+      // forever, so gating on fido2Authenticating would keep the panel lit
+      // until unlock. Only a check the user has actually started (a password
+      // or a PIN being verified) holds the display up.
+      if (root.authenticatingPassword || root.fido2Verifying) {
         root.armBlankTimer()
         return
       }
