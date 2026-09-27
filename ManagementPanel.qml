@@ -127,12 +127,30 @@ Item {
   readonly property var foreignPam: suiteState && suiteState.foreignPam ? suiteState.foreignPam : null
   readonly property bool sudoForeign: !!(foreignPam && foreignPam.sudo)
   readonly property bool polkitForeign: !!(foreignPam && foreignPam.polkit)
-  // Presence settings live on the service, which reads them from this
-  // plugin's inline entry in shell.json. Reading them there rather than
-  // re-parsing the file keeps one owner for the answer.
-  readonly property bool lockOnUnplug: !!(service && service.lockOnUnplug)
-  readonly property bool notifyOnKeyChange: !!(service && service.notifyOnKeyChange)
-  readonly property bool canEditSettings: !!(service && shell && typeof shell.updateEntryInline === "function")
+  // Presence settings live in this plugin's inline entry in shell.json. The
+  // service's reading is preferred where the panel is handed one, but it never
+  // is under Omarchy 4.0.3+: the lock is an authentication service, and those
+  // are kept away from every panel. The scoped shell API still carries
+  // `barConfig`, which is where the entry lives once the widget is on the bar
+  // -- the same place Service.qml finds it -- so read it there. With the
+  // widget off the bar the service cannot see the entry either, and the
+  // toggles stay hidden rather than write settings nothing would read.
+  readonly property var barEntry: {
+    var layout = shell && shell.barConfig && shell.barConfig.layout ? shell.barConfig.layout : null
+    if (!layout) return null
+    var sections = ["left", "center", "right"]
+    for (var s = 0; s < sections.length; s++) {
+      var row = Array.isArray(layout[sections[s]]) ? layout[sections[s]] : []
+      for (var r = 0; r < row.length; r++) {
+        if (row[r] && String(row[r].id).split("#")[0] === "erijl.lock") return row[r]
+      }
+    }
+    return null
+  }
+  readonly property var settingsEntry: service && service.settings ? service.settings : barEntry
+  readonly property bool lockOnUnplug: !!(settingsEntry && settingsEntry.lockOnUnplug === true)
+  readonly property bool notifyOnKeyChange: !!(settingsEntry && settingsEntry.notifyOnKeyChange === true)
+  readonly property bool canEditSettings: !!(settingsEntry && shell && typeof shell.updateEntryInline === "function")
 
   readonly property bool authfileOwned: !suiteState || String(suiteState.authfileOwner || "") === "root:root"
 
@@ -165,11 +183,11 @@ Item {
 
   // updateEntryInline rewrites the plugin's shell.json entry from what it is
   // handed, so the whole entry has to go back or a toggle here would erase
-  // defaultMode. The service re-reads shellConfig when it is persisted, and
+  // defaultMode. The service re-reads its entry when it is persisted, and
   // the toggles below follow from there.
   function setSetting(name, value) {
     if (!canEditSettings) return
-    var current = service.settings || ({})
+    var current = settingsEntry || ({})
     var next = {}
     for (var key in current) if (key !== "id") next[key] = current[key]
     next[name] = value
