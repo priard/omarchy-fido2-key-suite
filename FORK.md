@@ -21,6 +21,7 @@ Own changes on top:
   FIDO2 conversation (#1 kept a locked screen lit forever with a PIN key).
 - `enable` repairs the bare pam_unix polkit stack older versions wrote;
   `disable` removes an /etc copy that only shadows /usr/lib/pam.d.
+- `doctor` no longer dies on a key with no PIN set ("pin retries: undefined").
 - Management panel reads its presence toggles from `shell.barConfig`, so
   "When the key comes and goes" is visible again.
 
