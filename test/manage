@@ -904,5 +904,15 @@ grep -q "Upstream" "$output" ||
   fail "doctor reaches its last section" "$(cat "$output")"
 pass "doctor reports every section, not just the ones before the first passing check"
 
+# A key with no PIN set says "pin retries: undefined". Compared as a number
+# under set -u, that ended doctor in the authenticator section.
+printf 'proto: 0x02\noptions: rk, up, noclientPin\npin retries: undefined\n' >"$key_info"
+run "" doctor || true
+grep -q "Upstream" "$output" ||
+  fail "doctor survives a key that has no PIN retry count" "$(cat "$output")"
+grep -q "undefined PIN retries" "$output" &&
+  fail "doctor does not print a non-number as a retry count" "$(cat "$output")"
+pass "doctor survives a key with no PIN set"
+
 echo
 echo "all management assertions passed"

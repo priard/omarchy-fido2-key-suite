@@ -1310,6 +1310,10 @@ check_hardware() {
 
     local retries
     retries=$(token_field "$info" 'pin retries')
+    # A key with no PIN set reports "pin retries: undefined", and a non-number
+    # in the -le test below is an unbound variable under set -u -- which ended
+    # doctor right here, before the PIN policy and upstream checks ran.
+    [[ $retries =~ ^[0-9]+$ ]] || retries=""
     [[ -n $retries ]] && traits+=("$retries PIN retries left")
 
     ok "$device -- ${traits[*]:-no notable options}"
