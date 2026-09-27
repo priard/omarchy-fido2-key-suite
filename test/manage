@@ -835,6 +835,58 @@ grep -qE '^auth[[:space:]]+required[[:space:]]+pam_unix\.so' "$polkit_pam" ||
   fail "a service with no stack anywhere falls back to the written stack" "$(cat "$polkit_pam")"
 pass "a service with no vendor stack still gets the fabricated one"
 
+# --- an install made before that fix already has the invented stack ---------
+#
+# Upgrading must repair it, not keep it: the file is ours by construction, and
+# it is the one silently leaving polkit without pam_faillock. The layout below
+# is what an earlier version actually wrote -- different columns from today's.
+
+seed_vendor_polkit() {
+  rm -rf "$vendor_pam"
+  mkdir -p "$vendor_pam"
+  printf '#%%PAM-1.0\n\nauth       include      system-auth\naccount    include      system-auth\npassword   include      system-auth\nsession    include      system-auth\n' \
+    >"$vendor_polkit_pam"
+}
+
+reset_state
+seed_vendor_polkit
+enroll_one
+printf '%s\n' "# omarchy-fido2-suite:managed (erijl.lock) -- added by 'omarchy-fido2-suite enable', removed by 'disable'" \
+  "auth       sufficient  pam_u2f.so authfile=/etc/fido2/fido2 cue [cue_prompt=Touch your security key]" \
+  'auth      required pam_unix.so' '' 'account   required pam_unix.so' \
+  'password  required pam_unix.so' 'session   required pam_unix.so' \
+  | sed "s|/etc/fido2|$etc/fido2|" >"$polkit_pam"
+run "" enable || true
+
+(( $(grep -c 'include[[:space:]]*system-auth' "$polkit_pam") == 4 )) ||
+  fail "an invented stack is reseeded from the vendor one" "$(cat "$polkit_pam")"
+grep -q 'pam_unix\.so' "$polkit_pam" &&
+  fail "nothing of the invented stack survives the reseed" "$(cat "$polkit_pam")"
+(( $(grep -c 'pam_u2f\.so' "$polkit_pam") == 1 )) ||
+  fail "the reseeded stack carries our rule exactly once" "$(cat "$polkit_pam")"
+pass "an invented stack from an older version is reseeded from the vendor one"
+
+# Disabling leaves nothing but the vendor stack, and a copy of it in /etc only
+# shadows the real one -- including every future update to it.
+run "" disable || true
+[[ -f $polkit_pam ]] &&
+  fail "disable removes a file that only repeats the vendor stack" "$(cat "$polkit_pam")"
+pass "disable hands a vendor-backed service back to its vendor stack"
+
+# Something the user added by hand is theirs, and keeps the file in place.
+reset_state
+seed_vendor_polkit
+enroll_one
+run "" enable || true
+printf 'session    optional     pam_echo.so hello\n' >>"$polkit_pam"
+run "" disable || true
+grep -q 'pam_echo\.so' "$polkit_pam" ||
+  fail "disable keeps a vendor-seeded file the user has added to" "$(cat "$polkit_pam" 2>&1)"
+grep -q 'pam_u2f\.so' "$polkit_pam" &&
+  fail "disable still removes our rule from it" "$(cat "$polkit_pam")"
+pass "a vendor-seeded file the user changed is stripped, not removed"
+rm -rf "$vendor_pam"
+
 # --- doctor reports every section it has ------------------------------------
 
 # A check whose last line was a plain `[[ ... ]] && warn ...` returned non-zero

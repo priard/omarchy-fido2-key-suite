@@ -458,13 +458,42 @@ backup_pam_file() {
 # Remove only our own rules. A file with none of ours is left byte-for-byte
 # alone, so `disable` on a machine wired by another tool is a no-op there
 # rather than a deletion.
+#
+# Where the service ships a vendor stack, a file that is left with nothing but
+# that stack -- or the bare pam_unix stack older versions invented in its
+# place -- is only shadowing the distribution's own. It is removed instead, so
+# the vendor copy (and every update to it) applies again.
 strip_pam_line() {
-  local file=$1 service=$2 stripped
+  local file=$1 service=$2 stripped vendor
   [[ -f $file ]] || return 0
   stripped=$(pam_without_ours "$file" "$service")
   [[ $stripped == "$(cat "$file")" ]] && return 0
   backup_pam_file "$file"
+  vendor=$(pam_vendor_path "$service")
+  if [[ -f $vendor ]] && { pam_rules_equal "$stripped" "$(cat "$vendor")" || pam_is_invented_stack "$stripped"; }; then
+    sudo rm -f "$file"
+    note "removed $file; $vendor applies again"
+    return 0
+  fi
   install_root_file "$stripped" "$file"
+}
+
+# PAM rules only: comments and blank lines dropped, runs of whitespace folded,
+# so two files that configure the same stack compare equal however they are
+# laid out.
+pam_rules() { # content -> normalised rules
+  awk '/^[[:space:]]*(#|$)/ { next } { $1 = $1; print }' <<<"$1"
+}
+
+pam_rules_equal() { [[ "$(pam_rules "$1")" == "$(pam_rules "$2")" ]]; }
+
+# The four bare pam_unix rules that versions before the vendor-stack fix wrote
+# when /etc/pam.d had no file for the service. Matched on the rules alone,
+# because the column layout differed between versions.
+pam_is_invented_stack() { # content (already without our rule)
+  pam_rules_equal "$1" "$(printf '%s\n' \
+    'auth required pam_unix.so' 'account required pam_unix.so' \
+    'password required pam_unix.so' 'session required pam_unix.so')"
 }
 
 # "Wired" means wired by us. A foreign pam_u2f rule is reported separately
@@ -539,6 +568,18 @@ wire_system_pam() { # sudo and polkit; the lock service is written separately
       # The service has a vendor stack we are about to shadow. Seed from it so
       # everything it pulls in -- pam_faillock's throttling above all -- survives
       # our rule, instead of being silently dropped by a stack we invented.
+      install_root_file "$(insert_pam_line "$(cat "$vendor")" "$(pam_line "$service")")" "$file"
+      continue
+    fi
+
+    # An earlier version met this same vendor-backed service with no /etc file
+    # and invented a bare pam_unix stack for it, which silently dropped
+    # pam_faillock and the rest of system-auth. That file is ours by
+    # construction; replace it with the vendor stack rather than keep it.
+    if [[ -f $file && -f $vendor && -z $(pam_foreign_lines "$file" "$service") ]] &&
+      pam_is_invented_stack "$(pam_without_ours "$file" "$service")"; then
+      note "$file is a bare pam_unix stack an older version wrote; reseeding it from $vendor"
+      backup_pam_file "$file"
       install_root_file "$(insert_pam_line "$(cat "$vendor")" "$(pam_line "$service")")" "$file"
       continue
     fi
