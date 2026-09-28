@@ -29,5 +29,11 @@ Own changes on top:
   Screen Explorer by disabling the `lock` IPC handler, which otherwise
   shadowed it ("Function not found."). Presence and status moved to the
   `erijl.lock` target; lock-on-unplug hands off via `omarchy-shell lock lock`.
+- `identify`: which attached key holds which enrolled credential, asked
+  with user presence off, so no touch ("Which key?" in the panel).
+- `pin`: set or change the attached key's PIN (Set PIN / Change PIN).
+- Firmware version in status, doctor, state and the panel, with the EUCLEAK
+  warning for YubiKeys before 5.7.0.
+- Bar glyph filled while a key is attached, outlined and dim while none is.
 
 Pulling upstream later: `git fetch upstream && git merge upstream/production`.
