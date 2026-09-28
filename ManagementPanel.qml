@@ -258,6 +258,7 @@ Item {
       if (fullyWired) list.push({ id: "disable", label: "Unwire PAM", icon: "\uf00d" })
       else list.push({ id: "enable", label: "Wire up PAM", icon: "\uf00c" })
       list.push({ id: "repair", label: "Repair", icon: "\uf0ad" })
+      if (tokens.length > 0) list.push({ id: "identify", label: "Which key?", icon: "\uf002" })
     }
     list.push({ id: "doctor", label: "Doctor", icon: "\uf0f0" })
     return list

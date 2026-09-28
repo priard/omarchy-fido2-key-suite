@@ -6,6 +6,7 @@
 #   enroll [label]  enroll a security key (only one may be attached)
 #   list            list enrolled credentials
 #   remove [n]      remove one credential
+#   identify        match enrolled credentials to the attached keys
 #
 # Wiring:
 #   setup           write /etc/pam.d/omarchy-lock-fido2 (lock screen only)
@@ -884,6 +885,90 @@ cmd_remove_credential() {
   fi
 }
 
+# ---------------------------------------------------------------- identify
+
+# The relying party pam_u2f asserts against: its origin= option when the lock
+# service sets one, otherwise the default both pam_u2f and pamu2fcfg use.
+# A credential is bound to the RP it was registered under, so probing with the
+# wrong one reports every credential as foreign.
+pam_origin() {
+  local origin=""
+  [[ -f $PAM_SERVICE ]] &&
+    origin=$(grep -o 'pam_u2f\.so.*' "$PAM_SERVICE" | grep -o 'origin=[^ ]*' | head -1 | cut -d= -f2-)
+  printf '%s\n' "${origin:-pam://$(hostname)}"
+}
+
+# Does this authenticator hold this credential? A getAssertion with user
+# presence off answers without a touch and without blinking: the key either
+# signs or says it has no such credential. A key that enforces alwaysUv
+# refuses any assertion without a PIN, so it cannot be asked silently.
+#
+# The credential ID goes in on stdin, never on the command line.
+# -> 0 held, 1 not held, 2 could not tell
+credential_on_token() {
+  local dev=$1 khandle=$2 origin=$3 hash err
+  hash=$(head -c 32 /dev/urandom | base64 -w0)
+  if err=$(printf '%s\n%s\n%s\n' "$hash" "$origin" "$khandle" |
+    timeout -k 1 "$TOKEN_TIMEOUT" fido2-assert -G -t up=false "$dev" 2>&1 >/dev/null); then
+    return 0
+  fi
+  [[ $err == *NO_CREDENTIALS* ]] && return 1
+  return 2
+}
+
+cmd_identify() {
+  require_tools fido2-token fido2-assert
+
+  (( $(credential_count) > 0 )) || fail "no security keys enrolled for $USER_NAME"
+
+  local -a devices silent=()
+  mapfile -t devices < <(token_nodes)
+  (( ${#devices[@]} > 0 )) || fail "no FIDO2 authenticator detected -- plug one in and try again"
+
+  local dev info
+  for dev in "${devices[@]}"; do
+    info=$(fido2_token -I "$dev" 2>/dev/null) || { warn "$dev did not answer"; continue; }
+    if [[ $(token_option alwaysUv "$info") == true ]]; then
+      warn "$(sanitize_field "$(token_name "$dev")") enforces alwaysUv and cannot be asked without its PIN; skipped"
+    else
+      silent+=("$dev")
+    fi
+  done
+  (( ${#silent[@]} > 0 )) || exit 1
+
+  local origin
+  origin=$(pam_origin)
+  heading "Enrolled credentials against the attached keys"
+  note "relying party: $(sanitize_field "$origin")  --  no touch needed"
+  echo
+
+  local n=0 cred key label where rc unsure
+  while IFS= read -r cred; do
+    n=$((n + 1))
+    key=$(cred_key "$cred")
+    label=$(sanitize_field "$(label_for "$key")")
+    where="" unsure=0
+    for dev in "${silent[@]}"; do
+      rc=0
+      credential_on_token "$dev" "$(cut -d, -f1 <<<"$cred")" "$origin" || rc=$?
+      case $rc in
+      0) where="$dev  $(sanitize_field "$(token_name "$dev")")" ;;
+      2) unsure=1 ;;
+      esac
+    done
+    if [[ -n $where ]]; then
+      printf '  %s✓%s %-3s %-22s %s\n' "$GREEN" "$RESET" "$n" "$label" "$where"
+    elif (( unsure )); then
+      printf '  %s?%s %-3s %-22s %scould not check%s\n' "$YELLOW" "$RESET" "$n" "$label" "$DIM" "$RESET"
+    else
+      printf '  %s·%s %-3s %-22s %snot on any attached key%s\n' "$DIM" "$RESET" "$n" "$label" "$DIM" "$RESET"
+    fi
+  done < <(credentials)
+
+  echo
+  note "a credential on none of your keys is dead weight: $0 remove <n>"
+}
+
 # ------------------------------------------------------------------- wiring
 
 cmd_setup() {
@@ -1595,6 +1680,7 @@ Credentials
   enroll [label]  enroll a security key (only one may be attached)
   list            list enrolled credentials  (--porcelain for TSV)
   remove [n]      remove one credential
+  identify        which attached key holds which credential (no touch)
 
 SSH
   ssh [name]      mint an SSH key held on the authenticator (--resident)
@@ -1623,7 +1709,7 @@ command=""
 declare -a args=()
 while (( $# > 0 )); do
   case "$1" in
-  enroll | list | remove | ssh | setup | enable | disable | repair | status | doctor | state | detect | rebase) command="$1"; shift ;;
+  enroll | list | remove | identify | ssh | setup | enable | disable | repair | status | doctor | state | detect | rebase) command="$1"; shift ;;
   --yes | -y) ASSUME_YES=1; shift ;;
   --force) FORCE=1; shift ;;
   --adopt) ADOPT=1; shift ;;
@@ -1639,6 +1725,7 @@ case "$command" in
 enroll) cmd_enroll "${args[@]:-}" ;;
 list) cmd_list "${args[@]:-}" ;;
 remove) cmd_remove_credential "${args[@]:-}" ;;
+identify) cmd_identify ;;
 ssh) cmd_ssh "${args[@]:-}" ;;
 setup) cmd_setup ;;
 enable) cmd_enable ;;
