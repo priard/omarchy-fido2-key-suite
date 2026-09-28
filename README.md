@@ -147,6 +147,25 @@ retries by itself — each one can cost one of the key's PIN retries.
 Optional `"defaultMode"` on the same `shell.json` entry: `auto` (default),
 `password` to never start on the key, `security-key` to always.
 
+### Alongside another lock screen
+
+Another lock plugin, such as [Lock Screen
+Explorer](https://github.com/SirJul1337/omarchy-lock-explorer), claims the same
+`omarchy-shell lock` target, and the shell answers it from one plugin only. The
+`"lockScreen"` setting on the same entry (also a panel toggle) decides which:
+
+| Value | Who draws the lock screen |
+|---|---|
+| `"auto"` (default) | Another plugin while a known one is enabled, this one otherwise. |
+| `"on"` | This plugin. Takes effect from the next `omarchy restart shell`. |
+| `"off"` | Whichever other lock plugin is enabled. |
+
+Stepping aside gives up only the lock surface. Lock on unplug asks the lock
+screen in charge, and presence, the bar widget, the panel, `sudo`, polkit and
+SSH keep working. They talk to `omarchy-shell erijl.lock`, which this plugin
+always answers. Whether the other lock screen offers the key is up to that
+plugin.
+
 ### Why the key gets its own PAM service
 
 The shortcut is `auth sufficient pam_u2f.so` in `omarchy-lock-password`, with no

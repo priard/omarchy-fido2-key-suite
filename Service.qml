@@ -60,6 +60,80 @@ Item {
     return ["auto", "password", "security-key"].indexOf(mode) !== -1 ? mode : "auto"
   }
 
+  // Who draws the lock screen. Another lock plugin claims the same `lock` IPC
+  // target, and Quickshell answers a target from the first handler that
+  // registered it, so two lock screens cannot both be live: whichever loses
+  // gets "Function not found." for every command the other one never had.
+  // "auto" steps aside while a known lock plugin is enabled, "on" claims
+  // `lock` regardless, "off" always steps aside. Stepping aside is live;
+  // claiming is not -- a re-enabled handler does not take the target from one
+  // already answering it, so "on" wins from the next shell start. Stepping aside only
+  // gives up the lock surface; presence, lock-on-unplug and the panel stay.
+  readonly property string lockScreenMode: {
+    var mode = String(settings.lockScreen || "auto")
+    return ["auto", "on", "off"].indexOf(mode) !== -1 ? mode : "auto"
+  }
+
+  // Plugins known to draw a full lock screen of their own.
+  readonly property var externalLockScreens: ["io.github.sirjul1337.lock-explorer"]
+  readonly property string configHome: Quickshell.env("XDG_CONFIG_HOME") || (home + "/.config")
+  // Settled once shell.json has been read, so "auto" never claims `lock` for
+  // the moment before it knows whether it should.
+  property bool lockScreenResolved: false
+  property string externalLockScreenId: ""
+  property string externalLockScreenName: ""
+
+  readonly property bool lockScreenActive: lockScreenMode === "on"
+    || (lockScreenMode === "auto" && lockScreenResolved && externalLockScreenId === "")
+
+  // The ids shell.json enables: listed under `plugins` or placed on the bar,
+  // and not under `disabledPlugins`.
+  function enabledPluginIds(config) {
+    var ids = {}
+    var entries = Array.isArray(config.plugins) ? config.plugins : []
+    for (var i = 0; i < entries.length; i++) {
+      if (entries[i] && entries[i].id) ids[String(entries[i].id).split("#")[0]] = true
+    }
+    var layout = config.bar && config.bar.layout ? config.bar.layout : null
+    var sections = ["left", "center", "right"]
+    for (var s = 0; s < sections.length; s++) {
+      var row = layout && Array.isArray(layout[sections[s]]) ? layout[sections[s]] : []
+      for (var r = 0; r < row.length; r++) {
+        if (row[r] && row[r].id) ids[String(row[r].id).split("#")[0]] = true
+      }
+    }
+    var disabled = Array.isArray(config.disabledPlugins) ? config.disabledPlugins : []
+    for (var d = 0; d < disabled.length; d++) delete ids[String(disabled[d])]
+    return ids
+  }
+
+  function resolveLockScreen(text) {
+    var config = null
+    try {
+      config = JSON.parse(String(text || ""))
+    } catch (e) {
+      // A half-written shell.json: keep the last answer rather than flip.
+      if (lockScreenResolved) return
+    }
+
+    var ids = config ? enabledPluginIds(config) : ({})
+    var found = ""
+    for (var i = 0; i < externalLockScreens.length; i++) {
+      if (ids[externalLockScreens[i]]) { found = externalLockScreens[i]; break }
+    }
+    externalLockScreenId = found
+    lockScreenResolved = true
+  }
+
+  onLockScreenActiveChanged: {
+    logEvent("lock-screen=" + (lockScreenActive ? "this plugin" : (externalLockScreenId || "off")))
+    if (lockScreenActive) {
+      strandedLockResolved = false
+      strandedLockRetryTimer.rearm()
+      checkStrandedLock()
+    }
+  }
+
   // Both off by default, so a stock install adds no background work: turning
   // either on is what starts watching for the key while the session is
   // unlocked (see fido2DetectTimer). `=== true` rather than a truthy test --
@@ -191,6 +265,8 @@ Item {
   // a session locked this early is an orphan behind Hyprland's failsafe. Outputs
   // are often still absent here, so ask until the answer means something.
   function checkStrandedLock() {
+    // Recovering takes the lock surface; another lock screen owns that.
+    if (!lockScreenActive) return
     if (strandedLockResolved || strandedLockCheckProc.running) return
 
     // A lock this shell took is nobody's orphan.
@@ -203,7 +279,7 @@ Item {
   }
 
   function recoverStrandedLock() {
-    if (!strandedLock || locked || !passwordPamConfigured) return
+    if (!strandedLock || locked || !passwordPamConfigured || !lockScreenActive) return
 
     strandedLock = false
     logEvent("lock-stranded: recovering")
@@ -232,7 +308,7 @@ Item {
   // Called only for a real transition, and only once the first reading is in.
   function announcePresence(present) {
     logEvent(present ? "key-attached" : "key-removed")
-    if (!present && lockOnUnplug) lockForUnplug()
+    var handedOff = !present && lockOnUnplug && lockForUnplug()
 
     // Deliberately after the lock decision, so `locked` covers both a session
     // that was already locked and one this very removal just locked. A banner
@@ -240,8 +316,9 @@ Item {
     // 6ms before the lock and was buried by it -- and where the screen locks,
     // the lock screen is the better answer to "where did my key go" anyway.
     // If beginLock refused (no working password service) nothing is locked,
-    // and the notification goes out after all.
-    if (notifyOnKeyChange && !locked) notifyKeyChange(present)
+    // and the notification goes out after all. A lock handed to another lock
+    // screen is not visible as `locked` here, hence handedOff.
+    if (notifyOnKeyChange && !locked && !handedOff) notifyKeyChange(present)
   }
 
   function notifyKeyChange(present) {
@@ -255,11 +332,19 @@ Item {
 
   // Pulling the key out is a request to lock, not to log out: beginLock()
   // refuses without a working password service, which is what keeps this from
-  // stranding anyone behind a key they just unplugged.
+  // stranding anyone behind a key they just unplugged. With another lock
+  // screen in charge there is no surface here to take, so ask it instead;
+  // returns true only for that hand-off.
   function lockForUnplug() {
-    if (locked || lockRequested) return
+    if (locked || lockRequested) return false
+    if (!lockScreenActive) {
+      logEvent("lock-on-unplug: handed off")
+      Quickshell.execDetached(["omarchy-shell", "lock", "lock"])
+      return true
+    }
     logEvent("lock-on-unplug")
     beginLock()
+    return false
   }
 
   // Pick the factor once per lock: by default the key if one is enrolled and
@@ -1065,6 +1150,34 @@ Item {
     onFileChanged: reload()
   }
 
+  // Which plugins are enabled decides who draws the lock screen under "auto".
+  // Read from the file rather than from `shell`, because the scoped API an
+  // installed plugin gets carries neither `plugins` nor `disabledPlugins`.
+  FileView {
+    path: root.configHome + "/omarchy/shell.json"
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.resolveLockScreen(text())
+    onLoadFailed: root.resolveLockScreen("")
+    onFileChanged: reload()
+  }
+
+  // Only for naming it in `status` and the panel.
+  FileView {
+    path: root.externalLockScreenId !== ""
+      ? root.configHome + "/omarchy/plugins/" + root.externalLockScreenId + "/manifest.json"
+      : ""
+    printErrors: false
+    onLoaded: {
+      try {
+        root.externalLockScreenName = String(JSON.parse(text()).name || root.externalLockScreenId)
+      } catch (e) {
+        root.externalLockScreenName = root.externalLockScreenId
+      }
+    }
+    onLoadFailed: root.externalLockScreenName = root.externalLockScreenId
+  }
+
   Component.onCompleted: {
     refreshBackground()
     refreshFingerprintStatus()
@@ -1073,8 +1186,54 @@ Item {
     checkStrandedLock()
   }
 
+  function statusJson() {
+    return JSON.stringify({
+      locked: root.locked,
+      requested: root.lockRequested,
+      pending: root.pendingSessionLock,
+      sessionLocked: sessionLock.locked,
+      secure: sessionLock.secure,
+      realScreens: root.realScreenCount(),
+      passwordPam: root.passwordPamConfigured,
+      fingerprint: root.fingerprintConfigured,
+      fido2: root.fido2Configured,
+      fido2Pam: root.fido2PamConfigured,
+      fido2Enrolled: root.fido2Enrolled,
+      fido2Token: root.fido2TokenPresent,
+      lockOnUnplug: root.lockOnUnplug,
+      notifyOnKeyChange: root.notifyOnKeyChange,
+      // 0 or 1: every mounted indicator renews one shared lease, so this
+      // answers "is anything watching" rather than counting heads. Kept
+      // under the old name because `doctor` reads it.
+      presenceWatchers: root.presenceRequested ? 1 : 0,
+      authMode: root.authMode,
+      authModeSettled: root.authModeSettled,
+      defaultMode: root.defaultMode,
+      authenticating: root.authenticating,
+      lastEvent: root.lastEvent,
+      lastEventAt: root.lastEventAt,
+      // Who draws the lock screen; see lockScreenActive.
+      lockScreen: root.lockScreenMode,
+      lockScreenActive: root.lockScreenActive,
+      externalLockScreen: root.externalLockScreenId,
+      externalLockScreenName: root.externalLockScreenName
+    })
+  }
+
+  function presenceJson() {
+    if (fido2Configured) requestPresence()
+    return JSON.stringify({
+      fido2: fido2Configured,
+      fido2Token: fido2TokenPresent
+    })
+  }
+
+  // Omarchy's own `lock` target, for as long as this plugin draws the lock
+  // screen. Disabled, Quickshell passes the target to the next handler that
+  // registered it -- another lock plugin -- without a shell restart.
   IpcHandler {
     target: "lock"
+    enabled: root.lockScreenActive
 
     function lock(): string {
       if (!root.passwordPamConfigured) return "missing-pam"
@@ -1087,32 +1246,7 @@ Item {
     }
 
     function status(): string {
-      return JSON.stringify({
-        locked: root.locked,
-        requested: root.lockRequested,
-        pending: root.pendingSessionLock,
-        sessionLocked: sessionLock.locked,
-        secure: sessionLock.secure,
-        realScreens: root.realScreenCount(),
-        passwordPam: root.passwordPamConfigured,
-        fingerprint: root.fingerprintConfigured,
-        fido2: root.fido2Configured,
-        fido2Pam: root.fido2PamConfigured,
-        fido2Enrolled: root.fido2Enrolled,
-        fido2Token: root.fido2TokenPresent,
-        lockOnUnplug: root.lockOnUnplug,
-        notifyOnKeyChange: root.notifyOnKeyChange,
-        // 0 or 1: every mounted indicator renews one shared lease, so this
-        // answers "is anything watching" rather than counting heads. Kept
-        // under the old name because `doctor` reads it.
-        presenceWatchers: root.presenceRequested ? 1 : 0,
-        authMode: root.authMode,
-        authModeSettled: root.authModeSettled,
-        defaultMode: root.defaultMode,
-        authenticating: root.authenticating,
-        lastEvent: root.lastEvent,
-        lastEventAt: root.lastEventAt
-      })
+      return root.statusJson()
     }
 
     // Presence for a bar indicator. Omarchy marks the built-in lock plugin
@@ -1127,11 +1261,7 @@ Item {
     // mounted there is still exactly one thing asking the key whether it is
     // there, and nothing asks at all once they all stop calling.
     function presence(): string {
-      if (root.fido2Configured) root.requestPresence()
-      return JSON.stringify({
-        fido2: root.fido2Configured,
-        fido2Token: root.fido2TokenPresent
-      })
+      return root.presenceJson()
     }
 
     function preview(): string {
@@ -1146,6 +1276,20 @@ Item {
     function hidePreview(): string {
       root.previewVisible = false
       return "ok"
+    }
+  }
+
+  // Always answered, whoever draws the lock screen: the bar widget, the panel
+  // and `doctor` ask here, so they keep working with `lock` handed away.
+  IpcHandler {
+    target: "erijl.lock"
+
+    function presence(): string {
+      return root.presenceJson()
+    }
+
+    function status(): string {
+      return root.statusJson()
     }
   }
 }

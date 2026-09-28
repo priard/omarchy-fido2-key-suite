@@ -152,10 +152,45 @@ Item {
   readonly property bool notifyOnKeyChange: !!(settingsEntry && settingsEntry.notifyOnKeyChange === true)
   readonly property bool canEditSettings: !!(settingsEntry && shell && typeof shell.updateEntryInline === "function")
 
+  // Who draws the lock screen (Service.lockScreenActive). The mode is read
+  // from the entry like the toggles above; what "auto" resolves to -- whether
+  // another lock plugin is enabled -- only the service knows, so that comes
+  // from `erijl.lock status`. The row shows mode + detection rather than the
+  // service's own answer, so a click reads back before the service reloads.
+  readonly property string lockScreenMode: {
+    var mode = String(settingsEntry && settingsEntry.lockScreen || "auto")
+    return ["auto", "on", "off"].indexOf(mode) !== -1 ? mode : "auto"
+  }
+  property var lockScreenStatus: null
+  readonly property string externalLockScreenName: lockScreenStatus
+    ? safeText(lockScreenStatus.externalLockScreenName || lockScreenStatus.externalLockScreen || "", maxLabelChars) : ""
+  readonly property bool lockScreenAuto: externalLockScreenName === ""
+  readonly property bool lockScreenActive: lockScreenMode === "on"
+    || (lockScreenMode === "auto" && lockScreenAuto)
+  readonly property string lockScreenDescription: {
+    // Re-enabling a handler does not take `lock` back from one already
+    // answering it; only a restart re-runs the registration race.
+    if (lockScreenMode === "on") return lockScreenAuto
+      ? "Always this plugin's, whatever else is enabled"
+      : "On: takes over from " + externalLockScreenName + " after omarchy restart shell"
+    if (lockScreenMode === "off") return "Off: another lock screen plugin draws it"
+    return lockScreenAuto
+      ? "Auto: no other lock screen plugin is enabled"
+      : "Auto: " + externalLockScreenName + " draws it"
+  }
+
+  // A click always flips the checkmark, and lands on "auto" whenever auto
+  // would give the same answer -- so two clicks put it back where it was.
+  function toggleLockScreen() {
+    var next = !lockScreenActive
+    setSetting("lockScreen", next === lockScreenAuto ? "auto" : (next ? "on" : "off"))
+  }
+
   readonly property bool authfileOwned: !suiteState || String(suiteState.authfileOwner || "") === "root:root"
 
   function refresh() {
     if (!stateProc.running) stateProc.running = true
+    if (!lockScreenProc.running) lockScreenProc.running = true
   }
 
   // ---- launching flows ----------------------------------------------------
@@ -230,7 +265,7 @@ Item {
 
   function sectionCount(section) {
     if (section === "credentials") return credentials.length
-    if (section === "settings") return 2
+    if (section === "settings") return 3
     if (section === "actions") return actions.length
     return 0
   }
@@ -298,7 +333,8 @@ Item {
     }
     if (focusSection === "settings") {
       if (selectedIndex === 0) setSetting("lockOnUnplug", !lockOnUnplug)
-      else setSetting("notifyOnKeyChange", !notifyOnKeyChange)
+      else if (selectedIndex === 1) setSetting("notifyOnKeyChange", !notifyOnKeyChange)
+      else toggleLockScreen()
       return
     }
     if (focusSection === "actions") {
@@ -361,6 +397,22 @@ Item {
   readonly property int stateDeadlineSeconds: 15
   readonly property int stateStdoutLimit: 262144
   readonly property int stateStderrLimit: 4096
+
+  Process {
+    id: lockScreenProc
+    command: ["bash", "-c",
+              "timeout -k 2 5 omarchy-shell erijl.lock status 2>/dev/null | head -c 65536"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        try {
+          root.lockScreenStatus = JSON.parse(String(text || ""))
+        } catch (e) {
+          // The shell is restarting; keep the last reading.
+        }
+      }
+    }
+  }
 
   Process {
     id: stateProc
@@ -879,6 +931,25 @@ Item {
                 hasCursor: root.cursorActive && root.focusSection === "settings" && root.selectedIndex === 1
                 onHovered: function(isHovered) { if (isHovered) root.setCursor("settings", 1) }
                 onClicked: root.setSetting("notifyOnKeyChange", !root.notifyOnKeyChange)
+              }
+
+              PanelSectionHeader {
+                text: "LOCK SCREEN"
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+              }
+
+              Toggle {
+                width: parent.width
+                label: "Draw the lock screen"
+                description: root.lockScreenDescription
+                checked: root.lockScreenActive
+                foreground: root.foreground
+                accent: root.accent
+                fontFamily: root.fontFamily
+                hasCursor: root.cursorActive && root.focusSection === "settings" && root.selectedIndex === 2
+                onHovered: function(isHovered) { if (isHovered) root.setCursor("settings", 2) }
+                onClicked: root.toggleLockScreen()
               }
 
             }

@@ -24,5 +24,9 @@ Own changes on top:
 - `doctor` no longer dies on a key with no PIN set ("pin retries: undefined").
 - Management panel reads its presence toggles from `shell.barConfig`, so
   "When the key comes and goes" is visible again.
+- `lockScreen` setting (auto/on/off, panel toggle): steps aside for Lock
+  Screen Explorer by disabling the `lock` IPC handler, which otherwise
+  shadowed it ("Function not found."). Presence and status moved to the
+  `erijl.lock` target; lock-on-unplug hands off via `omarchy-shell lock lock`.
 
 Pulling upstream later: `git fetch upstream && git merge upstream/production`.

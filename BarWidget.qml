@@ -12,8 +12,9 @@ import qs.Ui
 // `omarchy.clonedFrom`; an authentication service is deliberately kept out of
 // the registry `shell.serviceFor` reads, so credential-bearing QML is never
 // reachable from a bar surface. `serviceFor("erijl.lock")` returns null here
-// however healthy the service is, which is why this asks over `lock presence`
-// instead. That call is also how the widget registers its interest: it renews
+// however healthy the service is, which is why this asks over
+// `erijl.lock presence` instead -- the plugin's own target, not `lock`, which
+// belongs to whichever lock screen is in charge. That call is also how the widget registers its interest: it renews
 // the presence lease that makes the service watch for the key while the
 // session is unlocked, the role Service.watchPresence() used to play.
 BarWidget {
@@ -41,7 +42,7 @@ BarWidget {
     // Bounded like every other collected command in this plugin: a wedged
     // shell must not leave the poll hanging for the rest of the session.
     command: ["bash", "-c",
-              "timeout -k 2 5 omarchy-shell lock presence 2>/dev/null | head -c 4096"]
+              "timeout -k 2 5 omarchy-shell erijl.lock presence 2>/dev/null | head -c 4096"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {

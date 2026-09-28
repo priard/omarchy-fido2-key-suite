@@ -152,9 +152,34 @@ check "the security-key glyph is not empty" bash -c '
 check "the bar widget does not reach for the service object" bash -c '
   ! grep -vE "^\s*//" "$1/BarWidget.qml" | grep -q "serviceFor"' _ "$REPO"
 
-check "the bar widget reads presence over the shell IPC" bash -c '
-  grep -q "omarchy-shell lock presence" "$1/BarWidget.qml" \
+# `lock` belongs to whichever lock screen is in charge, so presence has a
+# target of its own: with Lock Screen Explorer answering `lock presence`, the
+# glyph would ask a plugin that has never heard of a security key.
+check "the bar widget reads presence over the plugin's own IPC target" bash -c '
+  grep -q "omarchy-shell erijl.lock presence" "$1/BarWidget.qml" \
+    && grep -q "target: \"erijl.lock\"" "$1/Service.qml" \
     && grep -q "function presence(): string" "$1/Service.qml"' _ "$REPO"
+
+# Quickshell hands an IPC target to the first handler that claims it and
+# ignores the rest, so a second lock plugin loses every `omarchy-shell lock`
+# call to this one ("Function not found."). Disabling the handler passes the
+# target on, live. This shipped once, alongside Lock Screen Explorer.
+check "the lock screen steps aside for another lock plugin" bash -c '
+  grep -A 2 "target: \"lock\"" "$1/Service.qml" | grep -q "enabled: root.lockScreenActive" \
+    && grep -q "io.github.sirjul1337.lock-explorer" "$1/Service.qml"' _ "$REPO"
+
+check "lockScreen is auto unless set to exactly on or off" bash -c '
+  grep -q "\\[\"auto\", \"on\", \"off\"\\].indexOf(mode)" "$1/Service.qml"' _ "$REPO"
+
+# With another lock screen in charge, this service holds no lock surface, so
+# pulling the key has to ask the one that does.
+check "lock on unplug locks through whichever lock screen is in charge" bash -c '
+  grep -q "\"omarchy-shell\", \"lock\", \"lock\"" "$1/Service.qml"' _ "$REPO"
+
+# A stranded-lock recovery takes the lock surface; with another plugin in
+# charge that would put two lock screens on one session.
+check "stranded-lock recovery is left to the lock screen in charge" bash -c '
+  grep -A 3 "function checkStrandedLock" "$1/Service.qml" | grep -q "lockScreenActive"' _ "$REPO"
 
 # Both presence settings are opt-in. A truthy test would turn lockOnUnplug on
 # for anyone who wrote "false" as a string, and locking someone's session is

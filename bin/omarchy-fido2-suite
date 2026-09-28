@@ -1358,23 +1358,39 @@ check_plugin() {
   ok "$PLUGIN_ID is installed"
 
   # `omarchy plugin list` answers `enabled` with "is the widget on the bar" for
-  # anything that declares a bar-widget kind, so it cannot say whether the lock
-  # service is the one running. The service can: only this fork's `lock status`
-  # carries the FIDO2 fields.
+  # anything that declares a bar-widget kind, so it cannot say whether the
+  # service is the one running. The service can, on its own IPC target, which
+  # it answers whoever draws the lock screen.
   local status
-  status=$(omarchy-shell lock status 2>/dev/null || true)
+  status=$(omarchy-shell erijl.lock status 2>/dev/null || true)
   if ! jq -e . >/dev/null 2>&1 <<<"$status"; then
-    warn "the shell did not answer 'lock status'"
-    note "is omarchy-shell running? try: omarchy restart shell"
-    return
-  fi
-
-  if [[ $(jq -r 'has("fido2Pam")' <<<"$status") != "true" ]]; then
-    bad "the built-in lock screen is in charge, not this plugin"
+    bad "the shell did not answer 'erijl.lock status' -- this plugin's service is not running"
     note "omarchy plugin enable $PLUGIN_ID && omarchy restart shell"
     return
   fi
-  ok "this plugin's lock service is the one running"
+  ok "this plugin's service is running"
+
+  # `lock` goes to one handler only: this plugin's while it draws the lock
+  # screen, another lock plugin's once it has stepped aside (lockScreen).
+  local lock_status mode external
+  lock_status=$(omarchy-shell lock status 2>/dev/null || true)
+  mode=$(jq -r '.lockScreen // "auto"' <<<"$status")
+  external=$(jq -r '.externalLockScreenName // .externalLockScreen // ""' <<<"$status")
+  if [[ $(jq -r 'if has("lockScreenActive") then .lockScreenActive else true end' <<<"$status") == "true" ]]; then
+    if [[ $(jq -r 'has("fido2Pam")' <<<"$lock_status" 2>/dev/null) != "true" ]]; then
+      bad "another lock screen answers 'omarchy-shell lock', not this plugin"
+      note "omarchy restart shell -- or set lockScreen to \"auto\" or \"off\" to hand it over"
+      return
+    fi
+    ok "this plugin draws the lock screen (lockScreen=$mode)"
+  else
+    ok "the lock screen is handed to ${external:-another plugin} (lockScreen=$mode)"
+    if ! jq -e . >/dev/null 2>&1 <<<"$lock_status"; then
+      bad "nothing answers 'omarchy-shell lock' -- the session cannot be locked"
+      note "enable a lock screen plugin, or set lockScreen to \"on\""
+    fi
+    note "the key on the lock screen is up to that plugin; sudo, polkit and SSH are unaffected"
+  fi
 
   if [[ $(jq -r '.enabled' <<<"$entry") == "true" ]]; then
     ok "the bar widget is on the bar"
@@ -1408,6 +1424,8 @@ check_plugin() {
     "$(jq -r '"pam=\(.fido2Pam)  enrolled=\(.fido2Enrolled)  keyAttached=\(.fido2Token)  defaultMode=\(.defaultMode)"' <<<"$status")" \
     "$RESET"
 
+  # Only this plugin's own lock screen is ours to vouch for.
+  [[ $(jq -r 'if has("lockScreenActive") then .lockScreenActive else true end' <<<"$status") == "true" ]] || return 0
   [[ $(jq -r '.fido2 // false' <<<"$status") == "true" ]] &&
     ok "the lock screen will offer the key" ||
     warn "the lock screen will not offer the key yet (see above)"
