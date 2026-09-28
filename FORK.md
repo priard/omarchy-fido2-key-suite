@@ -35,5 +35,7 @@ Own changes on top:
 - Firmware version in status, doctor, state and the panel, with the EUCLEAK
   warning for YubiKeys before 5.7.0.
 - Bar glyph filled while a key is attached, outlined and dim while none is.
+- `wakeOnKeyInsert` setting (panel toggle): plugging the key in wakes a
+  blanked lock screen while this plugin draws it.
 
 Pulling upstream later: `git fetch upstream && git merge upstream/production`.

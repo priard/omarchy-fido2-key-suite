@@ -150,6 +150,7 @@ Item {
   readonly property var settingsEntry: service && service.settings ? service.settings : barEntry
   readonly property bool lockOnUnplug: !!(settingsEntry && settingsEntry.lockOnUnplug === true)
   readonly property bool notifyOnKeyChange: !!(settingsEntry && settingsEntry.notifyOnKeyChange === true)
+  readonly property bool wakeOnKeyInsert: !!(settingsEntry && settingsEntry.wakeOnKeyInsert === true)
   readonly property bool canEditSettings: !!(settingsEntry && shell && typeof shell.updateEntryInline === "function")
 
   // Who draws the lock screen (Service.lockScreenActive). The mode is read
@@ -270,7 +271,7 @@ Item {
 
   function sectionCount(section) {
     if (section === "credentials") return credentials.length
-    if (section === "settings") return 3
+    if (section === "settings") return 4
     if (section === "actions") return actions.length
     return 0
   }
@@ -339,6 +340,7 @@ Item {
     if (focusSection === "settings") {
       if (selectedIndex === 0) setSetting("lockOnUnplug", !lockOnUnplug)
       else if (selectedIndex === 1) setSetting("notifyOnKeyChange", !notifyOnKeyChange)
+      else if (selectedIndex === 2) setSetting("wakeOnKeyInsert", !wakeOnKeyInsert)
       else toggleLockScreen()
       return
     }
@@ -958,6 +960,21 @@ Item {
                 onClicked: root.setSetting("notifyOnKeyChange", !root.notifyOnKeyChange)
               }
 
+              Toggle {
+                width: parent.width
+                label: "Wake when the key is inserted"
+                description: root.lockScreenActive
+                  ? "Lights a dark lock screen, ready for a touch"
+                  : "Only for this plugin's lock screen; " + (root.externalLockScreenName || "the other one") + " has its own"
+                checked: root.wakeOnKeyInsert
+                foreground: root.foreground
+                accent: root.accent
+                fontFamily: root.fontFamily
+                hasCursor: root.cursorActive && root.focusSection === "settings" && root.selectedIndex === 2
+                onHovered: function(isHovered) { if (isHovered) root.setCursor("settings", 2) }
+                onClicked: root.setSetting("wakeOnKeyInsert", !root.wakeOnKeyInsert)
+              }
+
               PanelSectionHeader {
                 text: "LOCK SCREEN"
                 foreground: root.foreground
@@ -972,8 +989,8 @@ Item {
                 foreground: root.foreground
                 accent: root.accent
                 fontFamily: root.fontFamily
-                hasCursor: root.cursorActive && root.focusSection === "settings" && root.selectedIndex === 2
-                onHovered: function(isHovered) { if (isHovered) root.setCursor("settings", 2) }
+                hasCursor: root.cursorActive && root.focusSection === "settings" && root.selectedIndex === 3
+                onHovered: function(isHovered) { if (isHovered) root.setCursor("settings", 3) }
                 onClicked: root.toggleLockScreen()
               }
 

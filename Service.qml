@@ -149,6 +149,12 @@ Item {
   // a typo in shell.json should read as "not asked for", not as consent.
   readonly property bool lockOnUnplug: settings.lockOnUnplug === true
   readonly property bool notifyOnKeyChange: settings.notifyOnKeyChange === true
+  // Off by default. Plugging the key in while this plugin's lock screen is up
+  // wakes a blanked display, so the key is ready for a touch without a key
+  // press first. Presence is polled while locked anyway (fido2DetectTimer),
+  // so this adds no watching of its own. Another lock screen plugin decides
+  // its own wake; Lock Screen Explorer has the same setting.
+  readonly property bool wakeOnKeyInsert: settings.wakeOnKeyInsert === true
   // Surfaces that show presence -- the bar widget, one instance per monitor --
   // ask for it over the IPC below, because an authentication service is not
   // reachable as an object from a bar surface (see presence()). Interest is
@@ -318,6 +324,13 @@ Item {
   function announcePresence(present) {
     logEvent(present ? "key-attached" : "key-removed")
     var handedOff = !present && lockOnUnplug && lockForUnplug()
+
+    // runWake turns the display on only when it is off, and re-arms the
+    // blank countdown -- a key going in is somebody at the machine.
+    if (present && wakeOnKeyInsert && lockScreenActive && lockRequested) {
+      logEvent("wake-on-key-insert")
+      runWake()
+    }
 
     // Deliberately after the lock decision, so `locked` covers both a session
     // that was already locked and one this very removal just locked. A banner
@@ -1217,6 +1230,7 @@ Item {
       fido2Token: root.fido2TokenPresent,
       lockOnUnplug: root.lockOnUnplug,
       notifyOnKeyChange: root.notifyOnKeyChange,
+      wakeOnKeyInsert: root.wakeOnKeyInsert,
       // 0 or 1: every mounted indicator renews one shared lease, so this
       // answers "is anything watching" rather than counting heads. Kept
       // under the old name because `doctor` reads it.

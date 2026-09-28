@@ -102,13 +102,14 @@ erijl.lock` adds it to an installation that predates it.
 
 ### When the key comes and goes
 
-Two settings on this plugin's entry in `shell.json`, both off by default and
-both toggleable from the panel:
+Three settings on this plugin's entry in `shell.json`, all off by default and
+all toggleable from the panel:
 
 | Setting | What it does |
 |---|---|
 | `"lockOnUnplug": true` | Locks the session the moment the key leaves the machine. |
 | `"notifyOnKeyChange": true` | A notification when the key comes and goes. |
+| `"wakeOnKeyInsert": true` | Plugging the key in wakes a blanked lock screen, ready for a touch. Only while this plugin draws the lock screen; Lock Screen Explorer has its own setting. |
 
 Either one — or the bar widget being on the bar — keeps the service watching for
 the key while the session is unlocked. With all three off it only looks while
