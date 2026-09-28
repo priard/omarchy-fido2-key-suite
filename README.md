@@ -14,7 +14,7 @@ to the lock screen and to SSH, and adds a panel to manage it from the shell.
 | `sudo` and polkit | A touch on the key instead of a typed password. |
 | Multiple keys | A daily key and a backup, each labelled, each removable on its own. Stock Omarchy registers one and stops. |
 | Management panel | Enrolled credentials, the attached key and its PIN retries, what the key unlocks, settings. |
-| Bar widget | Key glyph, lit while a key is attached. Click opens the panel. |
+| Bar widget | Key glyph, filled while a key is attached. Click opens the panel. |
 | Lock on unplug | Opt-in: pulling the key out locks the session. |
 | SSH keys | `ed25519-sk` keys whose private half stays on the authenticator, plus the commit-signing config. |
 | Doctor | Checks the whole chain and names the fix for each failure. |
@@ -94,8 +94,8 @@ floating terminal running `bin/omarchy-fido2-suite`, the same idiom Omarchy's
 own Setup > Security entries use: you see the command, answer its prompts, and
 type your own sudo password.
 
-The bar widget is the key glyph the lock screen uses — lit while a key is
-attached, dim while none is, click to open the panel. `omarchy bar put
+The bar widget is a key glyph — filled while a key is attached, outlined and
+dim while none is, click to open the panel. `omarchy bar put
 erijl.lock` adds it to an installation that predates it.
 
 ### When the key comes and goes

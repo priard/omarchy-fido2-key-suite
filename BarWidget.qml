@@ -2,8 +2,8 @@ import QtQuick
 import Quickshell.Io
 import qs.Ui
 
-// The lock screen's key glyph, on the bar: lit while an authenticator is
-// attached, dim while none is, click to open the management panel.
+// A key glyph on the bar: filled while an authenticator is attached,
+// outlined and dim while none is, click to open the management panel.
 //
 // Presence is the service's answer rather than a second enumeration of the USB
 // bus -- but it arrives over the shell's IPC rather than by holding the
@@ -68,10 +68,13 @@ BarWidget {
     id: keyButton
     anchors.fill: parent
     bar: root.bar
-    // U+EB11, written as an escape: a Private Use Area codepoint survives no
-    // round trip through anything that sanitises text, and this one went
-    // missing exactly that way once.
-    text: "\ueb11"
+    // Filled key while one is attached, outline and dimmed while none is, so
+    // the state reads at a glance and not only by comparing brightness with
+    // the neighbours. Material Design Icons key / key-outline, a matched pair
+    // outside the BMP -- hence fromCodePoint -- and built from numbers: a
+    // Private Use Area codepoint survives no round trip through anything
+    // that sanitises text, and the old glyph went missing exactly that way.
+    text: String.fromCodePoint(root.keyPresent ? 0xF0306 : 0xF0DD6)
     dimmed: !root.keyPresent
     tooltipText: !root.configured
       ? "Security key not set up"
