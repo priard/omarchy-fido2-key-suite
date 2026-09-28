@@ -147,6 +147,12 @@ retries by itself — each one can cost one of the key's PIN retries.
 Optional `"defaultMode"` on the same `shell.json` entry: `auto` (default),
 `password` to never start on the key, `security-key` to always.
 
+The display blanks after 5 s of lock screen with nothing going on. Optional
+`"blankDelay"` (whole seconds, 3–300) on the same entry changes that. The count
+restarts whenever a screen reconnects, so an external panel that drops off the
+bus while blanked and takes a few seconds to come back still shows the lock
+screen for the full delay.
+
 ### Alongside another lock screen
 
 Another lock plugin, such as [Lock Screen

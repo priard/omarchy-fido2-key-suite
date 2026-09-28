@@ -60,6 +60,15 @@ Item {
     return ["auto", "password", "security-key"].indexOf(mode) !== -1 ? mode : "auto"
   }
 
+  // Seconds of lock screen before the display is blanked, counted from the
+  // last sign of life (lock, key press, a screen coming back). Upstream's 5 s
+  // by default; a whole number from 3 to 300, anything else is a typo and
+  // reads as the default.
+  readonly property int blankDelaySeconds: {
+    var value = Number(settings.blankDelay)
+    return Number.isInteger(value) && value >= 3 && value <= 300 ? value : 5
+  }
+
   // Who draws the lock screen. Another lock plugin claims the same `lock` IPC
   // target, and Quickshell answers a target from the first handler that
   // registered it, so two lock screens cannot both be live: whichever loses
@@ -1025,7 +1034,7 @@ Item {
 
   Timer {
     id: idleBlankTimer
-    interval: 5000
+    interval: root.blankDelaySeconds * 1000
     repeat: false
     property double armedAt: 0
     onTriggered: {
@@ -1089,6 +1098,12 @@ Item {
     target: Quickshell
     function onScreensChanged() {
       root.requestSessionLock()
+
+      // Many external panels (DisplayPort ones especially) drop off the bus
+      // while blanked and come back lit a few seconds after the wake, with
+      // their DPMS state lost. Count from when the screen is actually back,
+      // or those seconds come out of the lock screen's time on show.
+      if (root.lockRequested && root.hasRealScreen()) root.armBlankTimer()
 
       // A monitor still coming up has no workspace, so cannot answer yet.
       strandedLockRetryTimer.rearm()

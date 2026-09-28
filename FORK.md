@@ -15,8 +15,9 @@ Not merged: #4 -- the same `barConfig` fallback #2 already carries.
 
 Own changes on top:
 
-- Idle blank after 10 s instead of 5, re-armed when screens return (DP panel
-  on the G95NC comes back lit with DPMS state lost).
+- `blankDelay` setting for the idle blank (upstream's 5 s by default), and the
+  countdown restarts when a screen reconnects, so a panel that drops off the
+  bus while blanked still shows the lock screen for the full delay.
 - The display is held up only while a PIN is being verified, not for the whole
   FIDO2 conversation (#1 kept a locked screen lit forever with a PIN key).
 - `enable` repairs the bare pam_unix polkit stack older versions wrote;
