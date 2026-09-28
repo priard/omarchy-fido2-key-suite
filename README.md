@@ -66,6 +66,8 @@ suite did not write gets a diff and a question before it is replaced, and
 |---|---|
 | `enroll [label]` | register a key (only one attached at a time) |
 | `list` / `remove [n]` | what is enrolled; drop one credential |
+| `identify` | which attached key holds which enrolled credential, without a touch |
+| `pin` | set the attached key's PIN, or change it |
 | `enable` / `disable` | wire the key into `sudo` and polkit, or unwire it (`--adopt` to take over a `pam_u2f` rule written by something else) |
 | `ssh [name] [--resident]` | mint an SSH key held on the authenticator |
 | `repair` | fix an installation the stock Omarchy flow made |

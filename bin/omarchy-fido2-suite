@@ -7,6 +7,7 @@
 #   list            list enrolled credentials
 #   remove [n]      remove one credential
 #   identify        match enrolled credentials to the attached keys
+#   pin             set the key's PIN, or change it
 #
 # Wiring:
 #   setup           write /etc/pam.d/omarchy-lock-fido2 (lock screen only)
@@ -969,6 +970,59 @@ cmd_identify() {
   note "a credential on none of your keys is dead weight: $0 remove <n>"
 }
 
+# --------------------------------------------------------------------- PIN
+
+# fido2-token prompts for the PINs itself, twice for a new one, and never
+# echoes them; this only picks the key and the verb. One key at a time for
+# the same reason as enroll: the wrong key's PIN retries are not ours to spend.
+cmd_pin() {
+  require_tools fido2-token
+
+  local nodes count dev info state
+  nodes=$(token_nodes)
+  count=$(grep -c . <<<"$nodes" || true)
+  [[ -n $nodes ]] || fail "no FIDO2 authenticator detected -- plug one in and try again"
+  if (( count > 1 )); then
+    echo "More than one FIDO2 key is attached."
+    note "Unplug all but the key whose PIN you want to set, then run this again."
+    exit 1
+  fi
+
+  dev=$(head -1 <<<"$nodes")
+  info=$(fido2_token -I "$dev") || fail "could not interrogate $dev"
+  state=$(token_option clientPin "$info")
+
+  heading "PIN for $(sanitize_field "$(token_name "$dev")")"
+  case $state in
+  absent)
+    fail "this key does not support a PIN"
+    ;;
+  false)
+    note "No PIN is set. A PIN protects the key if it is lost: anything that asks"
+    note "for verification then needs the PIN as well as the touch. Minimum length"
+    note "on this key: $(sanitize_field "$(token_field "$info" minpinlen)")."
+    echo
+    fido2-token -S "$dev" || fail "the PIN was not set"
+    ok "PIN set"
+    ;;
+  true)
+    local retries
+    retries=$(token_field "$info" 'pin retries')
+    [[ $retries =~ ^[0-9]+$ ]] &&
+      note "$retries attempts left -- a wrong current PIN costs one, and at 0 the key factory-resets."
+    echo
+    fido2-token -C "$dev" || fail "the PIN was not changed"
+    ok "PIN changed"
+    ;;
+  esac
+
+  # Credentials record at enrollment whether they ask for the PIN, so a new
+  # PIN changes nothing about how the lock screen, sudo or SSH use the key.
+  echo
+  note "Enrolled credentials keep asking for what they asked for before. To be"
+  note "asked for the PIN at unlock too, enroll this key again and remove the old entry."
+}
+
 # ------------------------------------------------------------------- wiring
 
 cmd_setup() {
@@ -1681,6 +1735,7 @@ Credentials
   list            list enrolled credentials  (--porcelain for TSV)
   remove [n]      remove one credential
   identify        which attached key holds which credential (no touch)
+  pin             set the attached key's PIN, or change it
 
 SSH
   ssh [name]      mint an SSH key held on the authenticator (--resident)
@@ -1709,7 +1764,7 @@ command=""
 declare -a args=()
 while (( $# > 0 )); do
   case "$1" in
-  enroll | list | remove | identify | ssh | setup | enable | disable | repair | status | doctor | state | detect | rebase) command="$1"; shift ;;
+  enroll | list | remove | identify | pin | ssh | setup | enable | disable | repair | status | doctor | state | detect | rebase) command="$1"; shift ;;
   --yes | -y) ASSUME_YES=1; shift ;;
   --force) FORCE=1; shift ;;
   --adopt) ADOPT=1; shift ;;
@@ -1726,6 +1781,7 @@ enroll) cmd_enroll "${args[@]:-}" ;;
 list) cmd_list "${args[@]:-}" ;;
 remove) cmd_remove_credential "${args[@]:-}" ;;
 identify) cmd_identify ;;
+pin) cmd_pin ;;
 ssh) cmd_ssh "${args[@]:-}" ;;
 setup) cmd_setup ;;
 enable) cmd_enable ;;

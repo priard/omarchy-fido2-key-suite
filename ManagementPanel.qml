@@ -260,6 +260,10 @@ Item {
       list.push({ id: "repair", label: "Repair", icon: "\uf0ad" })
       if (tokens.length > 0) list.push({ id: "identify", label: "Which key?", icon: "\uf002" })
     }
+    // Only with exactly one key attached: fido2-token needs to be told which,
+    // and the command refuses to guess.
+    if (tokens.length === 1 && String(tokens[0].clientPin) !== "absent")
+      list.push({ id: "pin", label: String(tokens[0].clientPin) === "true" ? "Change PIN" : "Set PIN", icon: "\uf084" })
     list.push({ id: "doctor", label: "Doctor", icon: "\uf0f0" })
     return list
   }
