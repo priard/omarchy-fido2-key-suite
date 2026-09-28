@@ -71,7 +71,7 @@ suite did not write gets a diff and a question before it is replaced, and
 | `enable` / `disable` | wire the key into `sudo` and polkit, or unwire it (`--adopt` to take over a `pam_u2f` rule written by something else) |
 | `ssh [name] [--resident]` | mint an SSH key held on the authenticator |
 | `repair` | fix an installation the stock Omarchy flow made |
-| `status` / `doctor` | where things stand; check every link in the chain |
+| `status` / `doctor` | where things stand; check every link in the chain, including known flaws in the key's firmware |
 
 ---
 

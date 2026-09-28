@@ -694,6 +694,8 @@ Item {
                       wrapMode: Text.WordWrap
                       text: {
                         var parts = [root.safeText(tokenRow.modelData.device, root.maxLabelChars)]
+                        if (tokenRow.modelData.firmware)
+                          parts.push("firmware " + root.safeText(tokenRow.modelData.firmware, root.maxLabelChars))
                         if (String(tokenRow.modelData.alwaysUv) === "true") parts.push("alwaysUv")
                         if (String(tokenRow.modelData.clientPin) === "true") parts.push("PIN set")
                         else parts.push("no PIN set")
@@ -720,6 +722,24 @@ Item {
                 foreground: root.foreground
                 fontFamily: root.fontFamily
                 text: "Few PIN attempts left. At zero the key locks itself out and only a factory reset brings it back."
+              }
+
+              // Firmware on these keys cannot be updated, so this says what the
+              // flaw is and leaves the decision to replace the key with the user.
+              Notice {
+                width: parent.width
+                visible: text !== ""
+                tone: root.urgent
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                text: {
+                  for (var i = 0; i < root.tokens.length; i++) {
+                    var advisory = String(root.tokens[i].advisory || "")
+                    if (advisory !== "")
+                      return root.safeText(advisory, 200) + ". Firmware cannot be updated; SSH keys made here (ed25519-sk) are not affected."
+                  }
+                  return ""
+                }
               }
             }
 

@@ -211,6 +211,41 @@ token_option() {
 
 token_field() { sed -n "s/^$2:[[:space:]]*//p" <<<"$1" | head -1; }
 
+# USB vendor ID from the device listing: "... vendor=0x1050, product=0x0407 ...".
+token_vendor() {
+  fido2_token -L 2>/dev/null | grep -m1 "^$1:" | grep -o 'vendor=0x[0-9a-fA-F]*' | cut -d= -f2 || true
+}
+
+# The authenticator's firmware version as the vendor writes it. fido2-token
+# reports one number; Yubico packs major.minor.patch into its bytes, anything
+# else is shown as the raw number rather than guessed at.
+token_firmware() { # vendor info
+  local raw
+  raw=$(token_field "$2" fwversion)
+  [[ $raw =~ ^0x[0-9a-fA-F]+$ ]] || return 0
+  if [[ ${1,,} == 0x1050 ]]; then
+    printf '%d.%d.%d\n' $(( (raw >> 16) & 255 )) $(( (raw >> 8) & 255 )) $(( raw & 255 ))
+  else
+    printf '%s\n' "$raw"
+  fi
+}
+
+# Known firmware flaws, one line each. Firmware on these keys cannot be
+# updated, so the advice is about how the key is used or when to replace it.
+#
+# EUCLEAK (Yubico YSA-2024-03): the Infineon library in YubiKey 5, Bio and
+# Security Key series before firmware 5.7.0 leaks ECDSA private keys through
+# a side channel, to someone who holds the key and has lab equipment. EdDSA
+# credentials (ed25519-sk) are not affected; pam_u2f's default es256 is.
+firmware_advisory() { # vendor firmware
+  local vendor=${1,,} fw=$2 major minor
+  [[ $vendor == 0x1050 && $fw =~ ^([0-9]+)\.([0-9]+)\. ]] || return 0
+  major=${BASH_REMATCH[1]} minor=${BASH_REMATCH[2]}
+  if (( major == 5 && minor < 7 )); then
+    echo "EUCLEAK: ECDSA keys on firmware $fw can be extracted with physical access and lab equipment"
+  fi
+}
+
 # Which pamu2fcfg flags this authenticator actually needs. Getting this wrong
 # in either direction is what breaks things: omit the flag on an alwaysUv key
 # and every assertion is refused before the key is armed; force it on a key
@@ -1236,12 +1271,18 @@ cmd_status() {
   else
     while IFS= read -r dev; do
       info=$(fido2_token -I "$dev" 2>/dev/null) || continue
-      printf '  %s  %s\n' "$dev" "$(token_name "$dev")"
-      printf '    %salwaysUv=%s  clientPin=%s  uv=%s  pin retries=%s%s\n' "$DIM" \
+      local vendor fw advisory
+      vendor=$(token_vendor "$dev")
+      fw=$(token_firmware "$vendor" "$info")
+      advisory=$(firmware_advisory "$vendor" "$fw")
+      printf '  %s  %s\n' "$dev" "$(sanitize_field "$(token_name "$dev")")"
+      printf '    %sfirmware=%s  alwaysUv=%s  clientPin=%s  uv=%s  pin retries=%s%s\n' "$DIM" \
+        "${fw:-unknown}" \
         "$(token_option alwaysUv "$info")" \
         "$(token_option clientPin "$info")" \
         "$(token_option uv "$info")" \
         "$(token_field "$info" 'pin retries')" "$RESET"
+      [[ -z $advisory ]] || warn "$advisory"
     done < <(token_nodes)
   fi
   echo
@@ -1278,14 +1319,19 @@ cmd_state() {
   while IFS= read -r dev; do
     [[ -n $dev ]] || continue
     info=$(fido2_token -I "$dev" 2>/dev/null) || continue
+    local vendor fw
+    vendor=$(token_vendor "$dev")
+    fw=$(token_firmware "$vendor" "$info")
     tokens_json=$(jq -c --arg dev "$(sanitize_field "$dev")" \
+      --arg firmware "$(sanitize_field "$fw")" \
+      --arg advisory "$(sanitize_line "$(firmware_advisory "$vendor" "$fw")")" \
       --arg name "$(sanitize_field "$(token_name "$dev")")" \
       --arg alwaysUv "$(token_option alwaysUv "$info")" \
       --arg clientPin "$(token_option clientPin "$info")" \
       --arg uv "$(token_option uv "$info")" \
       --arg retries "$(sanitize_field "$(token_field "$info" 'pin retries')")" \
       '. + [{device: $dev, name: $name, alwaysUv: $alwaysUv, clientPin: $clientPin,
-             uv: $uv,
+             uv: $uv, firmware: $firmware, advisory: $advisory,
              pinRetries: ($retries | if test("^[0-9]+$") then tonumber else null end)}]' \
       <<<"$tokens_json")
   done < <(token_nodes)
@@ -1455,7 +1501,20 @@ check_hardware() {
     [[ $retries =~ ^[0-9]+$ ]] || retries=""
     [[ -n $retries ]] && traits+=("$retries PIN retries left")
 
-    ok "$device -- ${traits[*]:-no notable options}"
+    local vendor fw advisory
+    vendor=$(token_vendor "$device")
+    fw=$(token_firmware "$vendor" "$info")
+    [[ -n $fw ]] && traits=("firmware $fw" "${traits[@]}")
+
+    local summary="no notable options"
+    (( ${#traits[@]} )) && summary=$(printf '%s, ' "${traits[@]}") && summary=${summary%, }
+    ok "$device -- $summary"
+    advisory=$(firmware_advisory "$vendor" "$fw")
+    if [[ -n $advisory ]]; then
+      warn "$advisory"
+      note "firmware cannot be updated; ed25519-sk SSH keys are unaffected, the"
+      note "es256 credentials pam_u2f registers are. Replace the key for high-risk use."
+    fi
     if [[ -n $retries && $retries -le 3 ]]; then
       warn "only $retries PIN retries left on $device; at 0 the key factory-resets"
     fi
